@@ -154,11 +154,11 @@ try {
             'Удалить базу',
             'Выход'
         )
+        if ($a -eq 4) { break }
         switch($a){
             1 { Action-Edit }
             2 { Action-Toggle }
             3 { Action-Delete }
-            default { break }
         }
     }
 }
