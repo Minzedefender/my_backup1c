@@ -216,8 +216,13 @@ function Invoke-Pipeline {
                 $remoteFolder = "/Backups1C/$tag"
                 $remoteName   = Split-Path $artifact -Leaf
                 & $log ("Выгрузка в облако Я.Диск")
-                Upload-ToYandexDisk -Token $token -LocalPath $artifact -RemotePath "$remoteFolder/$remoteName" -BarWidth 28
-                & $log ("Выгрузка в облако Я.Диск завершена")
+                try {
+                    Upload-ToYandexDisk -Token $token -LocalPath $artifact -RemotePath "$remoteFolder/$remoteName" -BarWidth 28
+                    & $log ("Выгрузка в облако Я.Диск завершена")
+                }
+                catch {
+                    & $log ("[WARN] Не удалось отправить на Я.Диск: {0}" -f $_.Exception.Message)
+                }
             } else {
                 & $log ("ВНИМАНИЕ: включено облако, но токен для [{0}] не найден" -f $tag)
             }

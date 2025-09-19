@@ -29,6 +29,44 @@ function Show-BarLine {
     "{0} {1,3}% {2}/{3} {4}" -f $bar, [int]$Percent, $doneHuman, $totalHuman, $speedHuman
 }
 
+
+function Ensure-YandexDiskFolder {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$Token,
+        [Parameter(Mandatory)][string]$RemotePath
+    )
+
+    if ([string]::IsNullOrWhiteSpace($RemotePath)) { return }
+    $trimmed = $RemotePath.Trim('/')
+    if ([string]::IsNullOrWhiteSpace($trimmed)) { return }
+
+    $headers = @{ Authorization = "OAuth $Token" }
+    $segments = $trimmed.Split('/')
+    $current = ''
+    foreach ($segment in $segments) {
+        if ([string]::IsNullOrWhiteSpace($segment)) { continue }
+        $current = '/' + (($current.Trim('/') + '/' + $segment).Trim('/'))
+        $enc = [Uri]::EscapeDataString($current)
+        $uri = "https://cloud-api.yandex.net/v1/disk/resources?path=$enc"
+        try {
+            Invoke-RestMethod -Uri $uri -Headers $headers -Method Put -ErrorAction Stop | Out-Null
+        }
+        catch {
+            $resp = $_.Exception.Response
+            if ($resp -and $resp.StatusCode.value__ -eq 409) {
+                # already exists - ignore
+            }
+            elseif ($resp -and $resp.StatusCode.value__ -eq 401) {
+                throw "Yandex Disk authentication failed"
+            }
+            else {
+                throw "Не удалось создать папку '$current' на Яндекс.Диске: $($_.Exception.Message)"
+            }
+        }
+    }
+}
+
 function Upload-ToYandexDisk {
     [CmdletBinding()]
     param(
@@ -46,8 +84,12 @@ function Upload-ToYandexDisk {
     $total = [long]$fileInfo.Length
     $done  = 0L
 
-    $encPath = [Uri]::EscapeDataString($RemotePath)
     $headers = @{ Authorization = "OAuth $Token" }
+
+    $parent = Split-Path -Path $RemotePath -Parent
+    if (-not [string]::IsNullOrWhiteSpace($parent)) { Ensure-YandexDiskFolder -Token $Token -RemotePath $parent }
+
+    $encPath = [Uri]::EscapeDataString($RemotePath)
 
     # 1) получить URL
     $url = "https://cloud-api.yandex.net/v1/disk/resources/upload?path=$encPath&overwrite=true"
