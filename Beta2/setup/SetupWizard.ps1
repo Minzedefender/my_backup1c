@@ -256,6 +256,50 @@ if ($enableChoice -eq 1) {
 }
 
 if ($telegramOptions.Enabled) {
+    $telegramModulePath = Join-Path $PSScriptRoot '..\modules\Notifications.Telegram.psm1'
+    $moduleLoaded = $false
+    if (Test-Path $telegramModulePath) {
+        try {
+            Import-Module -Force -DisableNameChecking $telegramModulePath -ErrorAction Stop
+            $moduleLoaded = $true
+        }
+        catch {
+            Write-Host ("Не удалось загрузить модуль Telegram: {0}" -f $_.Exception.Message) -ForegroundColor Yellow
+        }
+    }
+    else {
+        Write-Host "Файл modules\Notifications.Telegram.psm1 не найден. Уведомления будут отключены." -ForegroundColor Yellow
+    }
+
+    if (-not $moduleLoaded) {
+        $telegramOptions.Enabled = $false
+        $telegramOptions.ChatId = ''
+        $telegramOptions.NotifyOnlyOnErrors = $false
+        $telegramTokenValue = ''
+        Write-Host "Уведомления Telegram отключены." -ForegroundColor Yellow
+    }
+    elseif ($telegramOptions.ChatId -and $telegramTokenValue) {
+        $testChoice = Read-Choice "Отправить тестовое сообщение в Telegram для проверки?" @('Да','Нет')
+        if ($testChoice -eq 1) {
+            try {
+                Send-TelegramMessage -Token $telegramTokenValue -ChatId $telegramOptions.ChatId -Text "Тестовое сообщение от мастера настройки my_backup1c" -Silent | Out-Null
+                Write-Host "Тестовое сообщение отправлено." -ForegroundColor Green
+            }
+            catch {
+                Write-Host ("Не удалось отправить тестовое сообщение: {0}" -f $_.Exception.Message) -ForegroundColor Yellow
+                $decision = Read-Choice "Как поступить?" @('Отключить уведомления','Оставить включёнными')
+                if ($decision -eq 1) {
+                    $telegramOptions.Enabled = $false
+                    $telegramOptions.ChatId = ''
+                    $telegramOptions.NotifyOnlyOnErrors = $false
+                    $telegramTokenValue = ''
+                }
+            }
+        }
+    }
+}
+
+if ($telegramOptions.Enabled) {
     $allSecrets[$telegramTokenKey] = $telegramTokenValue
 } elseif ($allSecrets.ContainsKey($telegramTokenKey)) {
     $allSecrets.Remove($telegramTokenKey)
@@ -271,7 +315,7 @@ foreach ($cfg in $allConfigs) {
 Encrypt-Secrets -Secrets $allSecrets -KeyPath $keyPath -OutFile $secretsFile
 Write-Host "Секреты сохранены и зашифрованы." -ForegroundColor Green
 
-$act = Read-Choice "��� ������ ����� ���������� ������?" @('��������� ��','������������� ��','������ �� ������')
+$act = Read-Choice "Что делать после завершения бэкапа?" @('Выключить ПК','Перезагрузить ПК','Ничего не делать')
 if ($telegramOptions.ChatId) { $telegramOptions.ChatId = $telegramOptions.ChatId.Trim() }
 $settingsToSave = if ($settingsData -is [hashtable]) { [hashtable]$settingsData.Clone() } else { @{} }
 $settingsToSave['AfterBackup'] = $act

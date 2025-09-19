@@ -13,6 +13,13 @@ function Send-TelegramMessage {
     if ([string]::IsNullOrWhiteSpace($Token)) { throw 'Telegram bot token is empty.' }
     if ([string]::IsNullOrWhiteSpace($ChatId)) { throw 'Telegram chat id is empty.' }
 
+    try {
+        $currentProtocol = [Net.ServicePointManager]::SecurityProtocol
+        if (($currentProtocol -band [Net.SecurityProtocolType]::Tls12) -eq 0) {
+            [Net.ServicePointManager]::SecurityProtocol = $currentProtocol -bor [Net.SecurityProtocolType]::Tls12
+        }
+    } catch { }
+
     $uri = "https://api.telegram.org/bot{0}/sendMessage" -f $Token
     $maxLen = 3900
 
