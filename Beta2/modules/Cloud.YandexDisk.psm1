@@ -156,4 +156,4 @@ function Upload-ToYandexDisk {
     }
 }
 
-Export-ModuleMember -Function Upload-ToYandexDisk
+Export-ModuleMember -Function Ensure-YandexDiskFolder, Upload-ToYandexDisk

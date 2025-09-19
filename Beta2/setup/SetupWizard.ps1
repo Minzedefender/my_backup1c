@@ -189,8 +189,6 @@ while ($true) {
         if ($lg) { $allSecrets["$($cfg.Tag)__DT_Login"]    = $lg }
         if ($pw) { $allSecrets["$($cfg.Tag)__DT_Password"] = $pw }
 
-        $cfg.DumpTimeoutMin = [int](Read-Host "Таймаут выгрузки, минут (по умолчанию 60)")
-        if ($cfg.DumpTimeoutMin -le 0) { $cfg.DumpTimeoutMin = 60 }
     }
 
     $cfg.DestinationPath = Select-FolderDialog "Папка, куда сохранять резервные копии"
@@ -201,7 +199,69 @@ while ($true) {
     if ($useCloud -eq 1) {
         $cfg.CloudType = 'Yandex.Disk'
         $token = Read-Host "Введите OAuth токен Яндекс.Диска"
-        if ($token) { $allSecrets["$($cfg.Tag)__YADiskToken"] = $token }
+        if ($token) {
+            $secretKey = "$($cfg.Tag)__YADiskToken"
+            $allSecrets[$secretKey] = $token
+
+            $cloudModulePath = Join-Path $PSScriptRoot '..\modules\Cloud.YandexDisk.psm1'
+            $cloudModuleLoaded = $false
+            if (Test-Path $cloudModulePath) {
+                try {
+                    Import-Module -Force -DisableNameChecking $cloudModulePath -ErrorAction Stop
+                    $cloudModuleLoaded = $true
+                }
+                catch {
+                    Write-Host ("Не удалось загрузить модуль Cloud.YandexDisk: {0}" -f $_.Exception.Message) -ForegroundColor Yellow
+                }
+            }
+            else {
+                Write-Host "Файл modules\Cloud.YandexDisk.psm1 не найден." -ForegroundColor Yellow
+            }
+
+            if ($cloudModuleLoaded) {
+                $testChoice = Read-Choice "Отправить тестовый файл на Яндекс.Диск для проверки?" @('Да','Нет')
+                if ($testChoice -eq 1) {
+                    $tmpFile = [IO.Path]::GetTempFileName()
+                    try {
+                        [IO.File]::WriteAllText($tmpFile, "Проверка связи с Яндекс.Диском {0}" -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'))
+                        $remoteFolder = "/Backups1C/$($cfg.Tag)"
+                        $remoteTest   = "$remoteFolder/__test_{0:yyyyMMdd_HHmmss}.txt" -f (Get-Date)
+                        try {
+                            Ensure-YandexDiskFolder -Token $token -RemotePath $remoteFolder
+                            Upload-ToYandexDisk -Token $token -LocalPath $tmpFile -RemotePath $remoteTest -BarWidth 10
+                            Write-Host "Тестовый файл успешно загружен (будет удалён)." -ForegroundColor Green
+                            $headers = @{ Authorization = "OAuth $token" }
+                            $encPath = [Uri]::EscapeDataString($remoteTest)
+                            try {
+                                Invoke-RestMethod -Uri "https://cloud-api.yandex.net/v1/disk/resources?path=$encPath&permanently=true" -Headers $headers -Method Delete -ErrorAction Stop | Out-Null
+                            } catch { }
+                        }
+                        catch {
+                            Write-Host ("Не удалось выгрузить тестовый файл: {0}" -f $_.Exception.Message) -ForegroundColor Yellow
+                            $decision = Read-Choice "Как поступить?" @('Отключить облако для этой базы','Оставить включённым')
+                            if ($decision -eq 1) {
+                                $cfg.CloudType = ''
+                                if ($allSecrets.ContainsKey($secretKey)) { $allSecrets.Remove($secretKey) }
+                            }
+                        }
+                    }
+                    finally {
+                        Remove-Item $tmpFile -Force -ErrorAction SilentlyContinue
+                    }
+                }
+            }
+            else {
+                $decision = Read-Choice "Не удалось подготовить модуль облака. Отключить облако для этой базы?" @('Да','Нет')
+                if ($decision -eq 1) {
+                    $cfg.CloudType = ''
+                    if ($allSecrets.ContainsKey($secretKey)) { $allSecrets.Remove($secretKey) }
+                }
+            }
+        }
+        else {
+            Write-Host "Токен не указан — облако отключено." -ForegroundColor Yellow
+            $cfg.CloudType = ''
+        }
     } else {
         $cfg.CloudType = ''
     }

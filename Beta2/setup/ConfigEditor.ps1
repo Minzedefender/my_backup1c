@@ -109,10 +109,6 @@ function Action-Edit{
         if($val -ne ''){
             $cfg.StopServices = ($val -split ',') | ForEach-Object { $_.Trim() } | Where-Object { $_ }
         }
-
-        if($cfg.PSObject.Properties.Name -contains 'DumpTimeoutMin'){
-            $cfg.DumpTimeoutMin = Prompt-Int 'DumpTimeoutMin (минут)' $cfg.DumpTimeoutMin
-        }
     }
 
     Save-Config $tag $cfg

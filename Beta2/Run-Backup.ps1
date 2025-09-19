@@ -182,50 +182,28 @@ $elapsed     = (Get-Date) - $startedAt
 $elapsedText = "{0:hh\:mm\:ss}" -f $elapsed
 
 Write-Log ("[INFO] Итог: всего {0}, успешно {1}, ошибок {2}, пропущено {3}" -f $total, $successCnt, $errorCnt, $skippedCnt)
-Write-Log ("[INFO] Лог сохранён: {0}" -f $sessionLog)
+Write-Host ("[INFO] Лог сохранён: {0}" -f $sessionLog)
 
 if ($telegramEnabled) {
     $sendReport = $true
     if ($telegramOnlyErrors -and $errorCnt -eq 0) { $sendReport = $false }
 
     if ($sendReport -and (Get-Command Send-TelegramMessage -ErrorAction SilentlyContinue)) {
-        $lines = @()
-        $lines += "Отчёт о резервном копировании"
-        $lines += ("Дата: {0}" -f (Get-Date -Format 'yyyy-MM-dd HH:mm'))
-        $lines += ("Баз всего: {0}, успешно: {1}, ошибок: {2}, пропущено: {3}" -f $total, $successCnt, $errorCnt, $skippedCnt)
-        $lines += ("Длительность: {0}" -f $elapsedText)
-        $lines += ("Лог: {0}" -f (Split-Path $sessionLog -Leaf))
-
-        foreach ($item in $results) {
-            $tag = $item.Tag
-            switch ($item.Status) {
-                'Success' {
-                    $name = if ($item.Artifact) { Split-Path $item.Artifact -Leaf } else { '—' }
-                    $lines += ("- {0}: успешно ({1})" -f $tag, $name)
-                }
-                'Skipped' {
-                    $lines += ("- {0}: пропущена" -f $tag)
-                }
-                'Error' {
-                    $err = $item.Error
-                    if ($err.Length -gt 160) { $err = $err.Substring(0, 160).Trim() + '...' }
-                    $lines += ("- {0}: ошибка ({1})" -f $tag, $err)
-                }
-                default {
-                    $lines += ("- {0}: статус {1}" -f $tag, $item.Status)
-                }
+        try {
+            $logLines = Get-Content -Path $sessionLog -Encoding UTF8
+            $message  = ($logLines -join "`n").Trim()
+            if ($message) {
+                Send-TelegramMessage -Token $telegramToken -ChatId $telegramChatId -Text $message | Out-Null
+                Write-Host "[INFO] Отчёт отправлен в Telegram."
+            }
+            else {
+                Write-Host "[WARN] Отчёт в Telegram не отправлен: лог пустой."
             }
         }
-
-        $message = ($lines -join "`n")
-        try {
-            Send-TelegramMessage -Token $telegramToken -ChatId $telegramChatId -Text $message | Out-Null
-            Write-Log "[INFO] Отчёт отправлен в Telegram."
-        }
         catch {
-            Write-Log ("[WARN] Не удалось отправить отчёт в Telegram: {0}" -f $_.Exception.Message)
+            Write-Host ("[WARN] Не удалось отправить отчёт в Telegram: {0}" -f $_.Exception.Message)
         }
-    }
+        }
     elseif (-not $sendReport) {
         Write-Log "[INFO] Отправка отчёта в Telegram пропущена: ошибок нет, включён режим 'только при ошибках'."
     }

@@ -18,13 +18,17 @@ function ConvertTo-Hashtable {
 function Wait-FileStable {
     param(
         [Parameter(Mandatory)][string]$Path,
-        [int]$TimeoutSec = 3600,
+        [int]$TimeoutSec = 0,
         [int]$PollSec    = 2,
-        [int]$StableTicks= 3
+        [int]$StableTicks= 3,
+        [System.Diagnostics.Process]$Process = $null,
+        [int]$PostExitWaitSec = 60
     )
-    $deadline = (Get-Date).AddSeconds($TimeoutSec)
-    $last = -1L; $stable = 0
-    while ((Get-Date) -lt $deadline) {
+    $deadline = if ($TimeoutSec -gt 0) { (Get-Date).AddSeconds($TimeoutSec) } else { $null }
+    $exitDeadline = $null
+    $last = -1L
+    $stable = 0
+    while ($true) {
         if (Test-Path -LiteralPath $Path) {
             $len = (Get-Item -LiteralPath $Path).Length
             if ($len -gt 0 -and $len -eq $last) {
@@ -34,10 +38,22 @@ function Wait-FileStable {
                 $stable = 0
                 $last = $len
             }
+        } else {
+            $stable = 0
+            $last = -1L
         }
+
+        if ($deadline -and (Get-Date) -gt $deadline) { return $false }
+
+        if ($Process) {
+            if ($Process.HasExited) {
+                if (-not $exitDeadline) { $exitDeadline = (Get-Date).AddSeconds([math]::Max(1,$PostExitWaitSec)) }
+                elseif ((Get-Date) -gt $exitDeadline) { return $false }
+            }
+        }
+
         Start-Sleep -Seconds $PollSec
     }
-    return $false
 }
 
 function Get-ShortPath([string]$Path){
@@ -95,7 +111,6 @@ function Invoke-Pipeline {
 
     $log = $Ctx.Log
     $tag = $Ctx.Tag
-    & $log ("Начало бэкапа")
     & $log ("База: {0}" -f $tag)
 
     $configFile   = Join-Path $Ctx.ConfigDir  ("{0}.json" -f $tag)
@@ -122,7 +137,6 @@ function Invoke-Pipeline {
     $exeCfg     = $config['ExePath']
     $keep       = 0 + ($config['Keep'])
     $useCloud   = ("" + $config['CloudType']) -eq 'Yandex.Disk'
-    $dumpTimeoutMin = [int]$config['DumpTimeoutMin']; if ($dumpTimeoutMin -le 0) { $dumpTimeoutMin = 60 }
 
     if ([string]::IsNullOrWhiteSpace($src))    { throw "Не задан SourcePath в конфиге" }
     if ([string]::IsNullOrWhiteSpace($dstDir)) { throw "Не задан DestinationPath в конфиге" }
@@ -151,14 +165,12 @@ function Invoke-Pipeline {
                 }
             }
 
-            & $log ("Выгрузка в формате DT (таймаут {0} мин)..." -f $dumpTimeoutMin)
+            & $log ("Запуск выгрузки в формате DT...")
 
-            # выбираем exe: сначала ExePath из конфига (обычно 1cestart.exe), затем авто 1cv8.exe
             $exe = $null
             if ($exeCfg -and (Test-Path $exeCfg)) { $exe = $exeCfg } else { $exe = Find-1CDesignerExe }
             if (-not $exe) { throw "Не найден исполняемый файл 1С (ни ExePath из конфига, ни 1cv8.exe из реестра)" }
 
-            # логин/пароль из secrets
             $loginKey = "{0}__DT_Login"    -f $tag
             $passKey  = "{0}__DT_Password" -f $tag
             $login    = if ($secrets.ContainsKey($loginKey)) { [string]$secrets[$loginKey] } else { $null }
@@ -168,20 +180,23 @@ function Invoke-Pipeline {
             $srcFolder = $srcFolder.TrimEnd('\','/')
             $logFile   = Join-Path $dstDir ("{0}_{1}.designer.log" -f $tag,$ts)
 
-            # Попытка 1: /F с коротким 8.3 путём
             $srcF83 = Get-ShortPath $srcFolder
             $argsF  = BuildArgsLine-F $srcF83 $artifact $logFile $login $password
-            Start-Process -FilePath $exe -ArgumentList $argsF -WindowStyle Hidden | Out-Null
-            $ok = Wait-FileStable -Path $artifact -TimeoutSec ($dumpTimeoutMin*60)
+            $procF  = Start-Process -FilePath $exe -ArgumentList $argsF -WindowStyle Hidden -PassThru
+            $ok = Wait-FileStable -Path $artifact -Process $procF
+            [void]$procF.WaitForExit()
+            if ($procF.ExitCode -ne 0) { & $log ("[WARN] 1cv8 завершился с кодом {0} (режим /F)" -f $procF.ExitCode) }
 
             if (-not $ok) {
-                # Попытка 2: IBConnectionString
+                & $log ("Повторный запуск выгрузки через IBConnectionString")
                 $argsIB = BuildArgsLine-IBCS $srcFolder $artifact $logFile $login $password
-                Start-Process -FilePath $exe -ArgumentList $argsIB -WindowStyle Hidden | Out-Null
-                $ok = Wait-FileStable -Path $artifact -TimeoutSec ($dumpTimeoutMin*60)
+                $procIB = Start-Process -FilePath $exe -ArgumentList $argsIB -WindowStyle Hidden -PassThru
+                $ok = Wait-FileStable -Path $artifact -Process $procIB
+                [void]$procIB.WaitForExit()
+                if ($procIB.ExitCode -ne 0) { & $log ("[WARN] 1cv8 завершился с кодом {0} (режим IBConnectionString)" -f $procIB.ExitCode) }
                 if (-not $ok) {
-                    if (Test-Path $logFile) { throw "Не дождались выгрузки за $dumpTimeoutMin мин. См. лог: $logFile" }
-                    else                    { throw "Не дождались выгрузки за $dumpTimeoutMin мин" }
+                    if (Test-Path $logFile) { throw "Не удалось получить стабильный файл .dt. См. лог: $logFile" }
+                    else                    { throw "Не удалось получить стабильный файл .dt" }
                 }
             }
         }
@@ -208,6 +223,8 @@ function Invoke-Pipeline {
             }
         }
 
+        $cloudResult = if ($useCloud) { 'Не выполнено' } else { 'Не использовалось' }
+
         # Облако
         if ($useCloud -and (Get-Command Upload-ToYandexDisk -ErrorAction SilentlyContinue)) {
             $tokenKey = "{0}__YADiskToken" -f $tag
@@ -219,17 +236,27 @@ function Invoke-Pipeline {
                 try {
                     Upload-ToYandexDisk -Token $token -LocalPath $artifact -RemotePath "$remoteFolder/$remoteName" -BarWidth 28
                     & $log ("Выгрузка в облако Я.Диск завершена")
+                    $cloudResult = 'Успех'
                 }
                 catch {
+                    $err = $_.Exception.Message
+                    if ($err.Length -gt 160) { $err = $err.Substring(0,160).Trim() + '...' }
+                    $cloudResult = "Ошибка: $err"
                     & $log ("[WARN] Не удалось отправить на Я.Диск: {0}" -f $_.Exception.Message)
                 }
             } else {
+                $cloudResult = 'Нет токена'
                 & $log ("ВНИМАНИЕ: включено облако, но токен для [{0}] не найден" -f $tag)
             }
         }
+        elseif ($useCloud) {
+            $cloudResult = 'Команда недоступна'
+            & $log ("[WARN] Функция Upload-ToYandexDisk недоступна")
+        }
 
         & $log ("=== Успешно завершено [{0}] ===" -f $tag)
-        return $artifact
+        return [pscustomobject]@{ Artifact = $artifact; CloudStatus = $cloudResult }
+
     }
     catch {
         throw ("Сбой бэкапа [{0}]: {1}" -f $tag, $_.Exception.Message)
