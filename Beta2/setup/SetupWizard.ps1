@@ -81,6 +81,40 @@ if ((Test-Path $secretsFile) -and (Test-Path $keyPath)) {
     } catch { $allSecrets = @{} }
 }
 
+$telegramTokenKey = '__TELEGRAM_BOT_TOKEN'
+$settingsData = @{}
+if (Test-Path $settingsFile) {
+    try {
+        $settingsData = ConvertTo-Hashtable (Get-Content $settingsFile -Raw | ConvertFrom-Json)
+        if (-not ($settingsData -is [hashtable])) { $settingsData = @{} }
+    } catch { $settingsData = @{} }
+}
+
+$telegramData = @{}
+if ($settingsData.ContainsKey('Telegram')) {
+    $telegramData = ConvertTo-Hashtable $settingsData['Telegram']
+    if (-not ($telegramData -is [hashtable])) { $telegramData = @{} }
+}
+
+$telegramEnabledDefault = $false
+if ($telegramData.ContainsKey('Enabled')) { $telegramEnabledDefault = [bool]$telegramData['Enabled'] }
+
+$telegramChatIdDefault = ''
+if ($telegramData.ContainsKey('ChatId')) { $telegramChatIdDefault = [string]$telegramData['ChatId'] }
+if ($telegramChatIdDefault) { $telegramChatIdDefault = $telegramChatIdDefault.Trim() }
+
+$telegramOnlyErrorsDefault = $false
+if ($telegramData.ContainsKey('NotifyOnlyOnErrors')) { $telegramOnlyErrorsDefault = [bool]$telegramData['NotifyOnlyOnErrors'] }
+
+$existingTelegramToken = ''
+if ($allSecrets.ContainsKey($telegramTokenKey)) { $existingTelegramToken = [string]$allSecrets[$telegramTokenKey] }
+
+$telegramOptions = [ordered]@{
+    Enabled = $telegramEnabledDefault
+    ChatId = $telegramChatIdDefault
+    NotifyOnlyOnErrors = $telegramOnlyErrorsDefault
+}
+
 $allConfigs = @()
 
 # ---------- wizard ----------
@@ -177,6 +211,56 @@ while ($true) {
     if ($more -ne 1) { break }
 }
 
+# ---------- telegram notifications ----------
+Write-Host ''
+$stateText = if ($telegramOptions.Enabled) { 'включена' } else { 'отключена' }
+Write-Host ("Текущий статус Telegram-уведомлений: {0}" -f $stateText) -ForegroundColor Cyan
+$enableChoice = Read-Choice "Включить отправку отчётов в Telegram?" @('Да','Нет')
+
+$telegramTokenValue = $existingTelegramToken
+if ($enableChoice -eq 1) {
+    $telegramOptions.Enabled = $true
+
+    $tokenInput = Read-Host "Введите токен бота Telegram (оставьте пустым, чтобы сохранить текущее значение)"
+    if (-not [string]::IsNullOrWhiteSpace($tokenInput)) { $telegramTokenValue = $tokenInput.Trim() }
+
+    if (-not $telegramTokenValue) {
+        Write-Host "Токен обязателен для отправки сообщений. Уведомления будут отключены." -ForegroundColor Yellow
+        $telegramOptions.Enabled = $false
+    }
+
+    if ($telegramOptions.Enabled) {
+        $chatPrompt = "Введите ID чата (оставьте пустым, чтобы сохранить текущее значение)"
+        if ([string]::IsNullOrWhiteSpace($telegramOptions.ChatId)) { $chatPrompt = "Введите ID чата для отчётов" }
+        $chatInput = Read-Host $chatPrompt
+        if (-not [string]::IsNullOrWhiteSpace($chatInput)) { $telegramOptions.ChatId = $chatInput.Trim() }
+
+        if (-not $telegramOptions.ChatId) {
+            Write-Host "ID чата обязателен. Уведомления будут отключены." -ForegroundColor Yellow
+            $telegramOptions.Enabled = $false
+        }
+    }
+
+    if ($telegramOptions.Enabled) {
+        $modeChoice = Read-Choice "Отправлять отчёт только при ошибках?" @('Нет','Да')
+        $telegramOptions.NotifyOnlyOnErrors = ($modeChoice -eq 2)
+    } else {
+        $telegramOptions.NotifyOnlyOnErrors = $false
+        $telegramTokenValue = ''
+    }
+} else {
+    $telegramOptions.Enabled = $false
+    $telegramOptions.ChatId = ''
+    $telegramOptions.NotifyOnlyOnErrors = $false
+    $telegramTokenValue = ''
+}
+
+if ($telegramOptions.Enabled) {
+    $allSecrets[$telegramTokenKey] = $telegramTokenValue
+} elseif ($allSecrets.ContainsKey($telegramTokenKey)) {
+    $allSecrets.Remove($telegramTokenKey)
+}
+
 # ---------- save ----------
 foreach ($cfg in $allConfigs) {
     $cfgPath = Join-Path $basesDir ("{0}.json" -f $cfg.Tag)
@@ -187,7 +271,12 @@ foreach ($cfg in $allConfigs) {
 Encrypt-Secrets -Secrets $allSecrets -KeyPath $keyPath -OutFile $secretsFile
 Write-Host "Секреты сохранены и зашифрованы." -ForegroundColor Green
 
-$act = Read-Choice "Что делать после завершения бэкапа?" @('Выключить ПК','Перезагрузить ПК','Ничего не делать')
-@{ AfterBackup = $act } | ConvertTo-Json -Depth 2 | Set-Content -Path $settingsFile -Encoding UTF8
+$act = Read-Choice "��� ������ ����� ���������� ������?" @('��������� ��','������������� ��','������ �� ������')
+if ($telegramOptions.ChatId) { $telegramOptions.ChatId = $telegramOptions.ChatId.Trim() }
+$settingsToSave = if ($settingsData -is [hashtable]) { [hashtable]$settingsData.Clone() } else { @{} }
+$settingsToSave['AfterBackup'] = $act
+$settingsToSave['Telegram'] = $telegramOptions
+$settingsToSave | ConvertTo-Json -Depth 6 | Set-Content -Path $settingsFile -Encoding UTF8
 
 Write-Host "[INFO] Настройка баз завершена." -ForegroundColor Green
+
