@@ -2,6 +2,11 @@
 using namespace System.Security.Cryptography
 using namespace System.Text
 
+if (-not ([Type]::GetType('System.Security.Cryptography.ProtectedData, System.Security', $false))) {
+    Add-Type -AssemblyName System.Security
+}
+
+
 function New-RandomKey {
     $k = New-Object byte[] 32
     [RandomNumberGenerator]::Create().GetBytes($k)
@@ -76,3 +81,51 @@ function Decrypt-Secrets {
 
     return $json | ConvertFrom-Json
 }
+
+function Protect-String {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$PlainText,
+        [object]$Entropy = $null
+    )
+
+    if ([string]::IsNullOrEmpty($PlainText)) { return '' }
+
+    $data = [Encoding]::UTF8.GetBytes($PlainText)
+    $entropyBytes = $null
+    if ($Entropy -is [byte[]]) { $entropyBytes = $Entropy }
+    elseif ($Entropy -is [string] -and $Entropy.Length -gt 0) { $entropyBytes = [Encoding]::UTF8.GetBytes($Entropy) }
+
+    $protected = [System.Security.Cryptography.ProtectedData]::Protect($data, $entropyBytes, [System.Security.Cryptography.DataProtectionScope]::CurrentUser)
+    [Convert]::ToBase64String($protected)
+}
+
+function Unprotect-String {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$ProtectedText,
+        [object]$Entropy = $null
+    )
+
+    if ([string]::IsNullOrWhiteSpace($ProtectedText)) { return '' }
+
+    try {
+        $data = [Convert]::FromBase64String($ProtectedText)
+    }
+    catch {
+        return $ProtectedText
+    }
+
+    $entropyBytes = $null
+    if ($Entropy -is [byte[]]) { $entropyBytes = $Entropy }
+    elseif ($Entropy -is [string] -and $Entropy.Length -gt 0) { $entropyBytes = [Encoding]::UTF8.GetBytes($Entropy) }
+
+    try {
+        $plain = [System.Security.Cryptography.ProtectedData]::Unprotect($data, $entropyBytes, [System.Security.Cryptography.DataProtectionScope]::CurrentUser)
+        [Encoding]::UTF8.GetString($plain)
+    }
+    catch {
+        return $ProtectedText
+    }
+}
+

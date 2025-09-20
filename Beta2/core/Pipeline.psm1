@@ -233,12 +233,16 @@ function Invoke-Pipeline {
 
         $cloudResult = if ($useCloud) { 'Не выполнено' } else { 'Не использовалось' }
 
+        $tokenKey = "{0}__YADiskToken" -f $tag
+        $token = $null
+        $remoteFolder = if ($useCloud) { "/Backups1C/$tag" } else { $null }
+        if ($useCloud -and $secrets.ContainsKey($tokenKey) -and $secrets[$tokenKey]) {
+            $token = [string]$secrets[$tokenKey]
+        }
+
         # Облако
         if ($useCloud -and (Get-Command Upload-ToYandexDisk -ErrorAction SilentlyContinue)) {
-            $tokenKey = "{0}__YADiskToken" -f $tag
-            if ($secrets.ContainsKey($tokenKey) -and $secrets[$tokenKey]) {
-                $token = $secrets[$tokenKey]
-                $remoteFolder = "/Backups1C/$tag"
+            if ($token) {
                 $remoteName   = Split-Path $artifact -Leaf
                 & $log ("Выгрузка в облако Я.Диск")
                 try {
@@ -262,7 +266,7 @@ function Invoke-Pipeline {
             & $log ("[WARN] Функция Upload-ToYandexDisk недоступна")
         }
 
-        if ($useCloud -and $cloudKeep -gt 0 -and (Get-Command Cleanup-YandexDiskFolder -ErrorAction SilentlyContinue)) {
+        if ($useCloud -and $cloudKeep -gt 0 -and $token -and $remoteFolder -and (Get-Command Cleanup-YandexDiskFolder -ErrorAction SilentlyContinue)) {
             try {
                 $removed = Cleanup-YandexDiskFolder -Token $token -RemoteFolder $remoteFolder -Keep $cloudKeep -FilePrefix "$tag" -LogAction { param($msg) & $log $msg }
                 if ($removed -and $removed.Count -gt 0) {
