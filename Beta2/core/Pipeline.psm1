@@ -6,6 +6,9 @@ Import-Module -Force -DisableNameChecking (Join-Path $ModulesRoot 'Common.Crypto
 if (Test-Path (Join-Path $ModulesRoot 'Cloud.YandexDisk.psm1')) {
     Import-Module -Force -DisableNameChecking (Join-Path $ModulesRoot 'Cloud.YandexDisk.psm1') -ErrorAction SilentlyContinue
 }
+if (Test-Path (Join-Path $ModulesRoot 'Cloud.YandexDisk.Cleanup.psm1')) {
+    Import-Module -Force -DisableNameChecking (Join-Path $ModulesRoot 'Cloud.YandexDisk.Cleanup.psm1') -ErrorAction SilentlyContinue
+}
 
 function ConvertTo-Hashtable {
     param([Parameter(Mandatory)]$Object)
@@ -137,6 +140,11 @@ function Invoke-Pipeline {
     $exeCfg     = $config['ExePath']
     $keep       = 0 + ($config['Keep'])
     $useCloud   = ("" + $config['CloudType']) -eq 'Yandex.Disk'
+    $cloudKeep  = 0
+    if ($config.ContainsKey('CloudKeep')) {
+        try { $cloudKeep = [int]$config['CloudKeep'] } catch { $cloudKeep = 0 }
+        if ($cloudKeep -lt 0) { $cloudKeep = 0 }
+    }
 
     if ([string]::IsNullOrWhiteSpace($src))    { throw "Не задан SourcePath в конфиге" }
     if ([string]::IsNullOrWhiteSpace($dstDir)) { throw "Не задан DestinationPath в конфиге" }
@@ -254,6 +262,22 @@ function Invoke-Pipeline {
             & $log ("[WARN] Функция Upload-ToYandexDisk недоступна")
         }
 
+        if ($useCloud -and $cloudKeep -gt 0 -and (Get-Command Cleanup-YandexDiskFolder -ErrorAction SilentlyContinue)) {
+            try {
+                $removed = Cleanup-YandexDiskFolder -Token $token -RemoteFolder $remoteFolder -Keep $cloudKeep -FilePrefix "$tag" -LogAction { param($msg) & $log $msg }
+                if ($removed -and $removed.Count -gt 0) {
+                    $names = ($removed | ForEach-Object { $_.name }) -join ', '
+                    & $log ("Удалены старые файлы из облака: {0}" -f $names)
+                }
+                else {
+                    & $log ("Файлы в облаке актуальны, чистка не требовалась")
+                }
+            }
+            catch {
+                & $log ("[WARN] Ошибка очистки Я.Диска: {0}" -f $_.Exception.Message)
+            }
+        }
+
         & $log ("=== Успешно завершено [{0}] ===" -f $tag)
         return [pscustomobject]@{ Artifact = $artifact; CloudStatus = $cloudResult }
 
@@ -274,3 +298,4 @@ function Invoke-Pipeline {
 }
 
 Export-ModuleMember -Function Invoke-Pipeline
+

@@ -68,15 +68,18 @@ if ($settingsData.ContainsKey('AfterBackup')) {
 
 $telegramEnabled = $false
 $telegramChatId = ''
+$telegramSecondaryChatId = ''
 $telegramOnlyErrors = $false
 if ($settingsData.ContainsKey('Telegram')) {
     $telegramRaw = ConvertTo-Hashtable $settingsData['Telegram']
     if ($telegramRaw.ContainsKey('Enabled')) { $telegramEnabled = [bool]$telegramRaw['Enabled'] }
     if ($telegramRaw.ContainsKey('ChatId')) { $telegramChatId = ('' + $telegramRaw['ChatId']).Trim() }
+    if ($telegramRaw.ContainsKey('SecondaryChatId')) { $telegramSecondaryChatId = ('' + $telegramRaw['SecondaryChatId']).Trim() }
     if ($telegramRaw.ContainsKey('NotifyOnlyOnErrors')) { $telegramOnlyErrors = [bool]$telegramRaw['NotifyOnlyOnErrors'] }
 }
 
 $telegramToken = $null
+$telegramSecondaryToken = $null
 $telegramModulePath = Join-Path $PSScriptRoot 'modules\Notifications.Telegram.psm1'
 $cryptoModulePath   = Join-Path $PSScriptRoot 'modules\Common.Crypto.psm1'
 if ($telegramEnabled) {
@@ -119,6 +122,9 @@ if ($telegramEnabled) {
                 if ($secrets.ContainsKey('__TELEGRAM_BOT_TOKEN')) {
                     $telegramToken = [string]$secrets['__TELEGRAM_BOT_TOKEN']
                 }
+                if ($secrets.ContainsKey('__TELEGRAM_SECONDARY_BOT_TOKEN')) {
+                    $telegramSecondaryToken = [string]$secrets['__TELEGRAM_SECONDARY_BOT_TOKEN']
+                }
             }
             catch {
                 Write-Log ("[WARN] Не удалось расшифровать секреты для Telegram: {0}" -f $_.Exception.Message)
@@ -139,6 +145,17 @@ if ($telegramEnabled) {
         Write-Log "[WARN] Не найден токен бота Telegram. Уведомления отключены."
         $telegramEnabled = $false
     }
+}
+
+if ($telegramEnabled) {
+    if (-not $telegramSecondaryToken -or [string]::IsNullOrWhiteSpace($telegramSecondaryChatId)) {
+        $telegramSecondaryToken = $null
+        $telegramSecondaryChatId = ''
+    }
+}
+else {
+    $telegramSecondaryToken = $null
+    $telegramSecondaryChatId = ''
 }
 
 $results = @()
@@ -195,6 +212,15 @@ if ($telegramEnabled) {
             if ($message) {
                 Send-TelegramMessage -Token $telegramToken -ChatId $telegramChatId -Text $message | Out-Null
                 Write-Host "[INFO] Отчёт отправлен в Telegram."
+                if ($telegramSecondaryToken -and $telegramSecondaryChatId) {
+                    try {
+                        Send-TelegramMessage -Token $telegramSecondaryToken -ChatId $telegramSecondaryChatId -Text $message | Out-Null
+                        Write-Host "[INFO] Дополнительный отчёт отправлен ответственному."
+                    }
+                    catch {
+                        Write-Host ("[WARN] Не удалось отправить отчёт ответственному: {0}" -f $_.Exception.Message)
+                    }
+                }
             }
             else {
                 Write-Host "[WARN] Отчёт в Telegram не отправлен: лог пустой."
@@ -203,8 +229,8 @@ if ($telegramEnabled) {
         catch {
             Write-Host ("[WARN] Не удалось отправить отчёт в Telegram: {0}" -f $_.Exception.Message)
         }
-        }
-    elseif (-not $sendReport) {
+    }
+        elseif (-not $sendReport) {
         Write-Log "[INFO] Отправка отчёта в Telegram пропущена: ошибок нет, включён режим 'только при ошибках'."
     }
     else {

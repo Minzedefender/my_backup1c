@@ -84,10 +84,35 @@ function Action-Edit{
     if($cfg.PSObject.Properties.Name -contains 'Keep'){
         $cfg.Keep = Prompt-Int 'Keep (сколько копий хранить)' $cfg.Keep
     }
-    if($cfg.PSObject.Properties.Name -contains 'CloudType'){
+    if($cfg.PSObject.Properties.Name -contains 'CloudType')
+    {
         $cur = $cfg.CloudType
         $val = Read-Host ("CloudType (текущее: {0})" -f $cur)
         if($val -ne ''){ $cfg.CloudType = $val }
+    }
+
+    $currentCloudKeep = 0
+    if($cfg.PSObject.Properties.Name -contains 'CloudKeep')
+    {
+        try { $currentCloudKeep = [int]$cfg.CloudKeep } catch { $currentCloudKeep = 0 }
+    }
+    else
+    {
+        $cfg | Add-Member -NotePropertyName 'CloudKeep' -NotePropertyValue 0 -Force
+    }
+    $cloudKeepInput = Read-Host ("CloudKeep — сколько файлов хранить в облаке (0 = без чистки), текущее: {0}" -f $currentCloudKeep)
+    if([string]::IsNullOrWhiteSpace($cloudKeepInput))
+    {
+        $cfg.CloudKeep = $currentCloudKeep
+    }
+    elseif([int]::TryParse($cloudKeepInput, [ref]([int]$null)))
+    {
+        $cfg.CloudKeep = [math]::Max(0, [int]$cloudKeepInput)
+    }
+    else
+    {
+        Write-Host "Некорректное число, CloudKeep остаётся: $currentCloudKeep" -ForegroundColor Yellow
+        $cfg.CloudKeep = $currentCloudKeep
     }
 
     # Только для DT

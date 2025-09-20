@@ -82,6 +82,7 @@ if ((Test-Path $secretsFile) -and (Test-Path $keyPath)) {
 }
 
 $telegramTokenKey = '__TELEGRAM_BOT_TOKEN'
+$secondaryTokenKey = '__TELEGRAM_SECONDARY_BOT_TOKEN'
 $settingsData = @{}
 if (Test-Path $settingsFile) {
     try {
@@ -103,16 +104,23 @@ $telegramChatIdDefault = ''
 if ($telegramData.ContainsKey('ChatId')) { $telegramChatIdDefault = [string]$telegramData['ChatId'] }
 if ($telegramChatIdDefault) { $telegramChatIdDefault = $telegramChatIdDefault.Trim() }
 
+$telegramSecondaryChatDefault = ''
+if ($telegramData.ContainsKey('SecondaryChatId')) { $telegramSecondaryChatDefault = [string]$telegramData['SecondaryChatId'] }
+if ($telegramSecondaryChatDefault) { $telegramSecondaryChatDefault = $telegramSecondaryChatDefault.Trim() }
+
 $telegramOnlyErrorsDefault = $false
 if ($telegramData.ContainsKey('NotifyOnlyOnErrors')) { $telegramOnlyErrorsDefault = [bool]$telegramData['NotifyOnlyOnErrors'] }
 
 $existingTelegramToken = ''
 if ($allSecrets.ContainsKey($telegramTokenKey)) { $existingTelegramToken = [string]$allSecrets[$telegramTokenKey] }
+$existingTelegramSecondaryToken = ''
+if ($allSecrets.ContainsKey($secondaryTokenKey)) { $existingTelegramSecondaryToken = [string]$allSecrets[$secondaryTokenKey] }
 
 $telegramOptions = [ordered]@{
     Enabled = $telegramEnabledDefault
     ChatId = $telegramChatIdDefault
     NotifyOnlyOnErrors = $telegramOnlyErrorsDefault
+    SecondaryChatId = $telegramSecondaryChatDefault
 }
 
 $allConfigs = @()
@@ -203,6 +211,22 @@ while ($true) {
             $secretKey = "$($cfg.Tag)__YADiskToken"
             $allSecrets[$secretKey] = $token
 
+            $currentCloudKeep = 0
+            if ($cfg.PSObject.Properties.Name -contains 'CloudKeep') {
+                try { $currentCloudKeep = [int]$cfg.CloudKeep } catch { $currentCloudKeep = 0 }
+            } else {
+                $cfg | Add-Member -NotePropertyName 'CloudKeep' -NotePropertyValue 0 -Force
+            }
+            $cloudKeepInput = Read-Host ("Сколько копий хранить в облаке (0 — без чистки), текущее: {0}" -f $currentCloudKeep)
+            if (![string]::IsNullOrWhiteSpace($cloudKeepInput) -and [int]::TryParse($cloudKeepInput, [ref]([int]$null))) {
+                $cfg.CloudKeep = [math]::Max(0, [int]$cloudKeepInput)
+            } elseif ([string]::IsNullOrWhiteSpace($cloudKeepInput)) {
+                $cfg.CloudKeep = $currentCloudKeep
+            } else {
+                Write-Host "Введено не число. CloudKeep оставлен равным {0}." -f $currentCloudKeep -ForegroundColor Yellow
+                $cfg.CloudKeep = $currentCloudKeep
+            }
+
             $cloudModulePath = Join-Path $PSScriptRoot '..\modules\Cloud.YandexDisk.psm1'
             $cloudModuleLoaded = $false
             if (Test-Path $cloudModulePath) {
@@ -275,9 +299,30 @@ while ($true) {
 Write-Host ''
 $stateText = if ($telegramOptions.Enabled) { 'включена' } else { 'отключена' }
 Write-Host ("Текущий статус Telegram-уведомлений: {0}" -f $stateText) -ForegroundColor Cyan
-$enableChoice = Read-Choice "Включить отправку отчётов в Telegram?" @('Да','Нет')
+
+while ($true) {
+    $rawChoice = Read-Host "Включить отправку отчётов в Telegram? (1/2)"
+    if ($rawChoice -eq '3') {
+        $enableChoice = 3
+        break
+    }
+    if ($rawChoice -match '^[12]$') {
+        $enableChoice = [int]$rawChoice
+        break
+    }
+    Write-Host "Некорректный выбор." -ForegroundColor Yellow
+}
+
+$secondaryMode = $false
+if ($enableChoice -eq 3) {
+    $secondaryMode = $true
+    $enableChoice = 1
+}
 
 $telegramTokenValue = $existingTelegramToken
+$secondaryTokenValue = $existingTelegramSecondaryToken
+$secondaryChatValue = $telegramOptions.SecondaryChatId
+
 if ($enableChoice -eq 1) {
     $telegramOptions.Enabled = $true
 
@@ -290,7 +335,7 @@ if ($enableChoice -eq 1) {
     }
 
     if ($telegramOptions.Enabled) {
-        $chatPrompt = "Введите ID чата (оставьте пустым, чтобы сохранить текущее значение)"
+        $chatPrompt = "Введите ID чата для отчётов (оставьте пустым, чтобы сохранить текущее значение)"
         if ([string]::IsNullOrWhiteSpace($telegramOptions.ChatId)) { $chatPrompt = "Введите ID чата для отчётов" }
         $chatInput = Read-Host $chatPrompt
         if (-not [string]::IsNullOrWhiteSpace($chatInput)) { $telegramOptions.ChatId = $chatInput.Trim() }
@@ -304,66 +349,69 @@ if ($enableChoice -eq 1) {
     if ($telegramOptions.Enabled) {
         $modeChoice = Read-Choice "Отправлять отчёт только при ошибках?" @('Нет','Да')
         $telegramOptions.NotifyOnlyOnErrors = ($modeChoice -eq 2)
-    } else {
-        $telegramOptions.NotifyOnlyOnErrors = $false
-        $telegramTokenValue = ''
+
+        if ($secondaryMode -or $secondaryTokenValue) {
+            $secondaryTokenInput = Read-Host "Введите токен второго бота (оставьте пустым, чтобы сохранить текущее значение или отключить)"
+            if (-not [string]::IsNullOrWhiteSpace($secondaryTokenInput)) {
+                $secondaryTokenValue = $secondaryTokenInput.Trim()
+            }
+            elseif (-not $secondaryTokenValue) {
+                $secondaryTokenValue = ''
+            }
+
+            if ($secondaryTokenValue) {
+                $secondaryPrompt = "Введите ID чата второго бота (оставьте пустым, чтобы сохранить текущее значение)"
+                if ([string]::IsNullOrWhiteSpace($secondaryChatValue)) { $secondaryPrompt = "Введите ID чата второго бота" }
+                $secondaryInput = Read-Host $secondaryPrompt
+                if (-not [string]::IsNullOrWhiteSpace($secondaryInput)) { $secondaryChatValue = $secondaryInput.Trim() }
+
+                if (-not $secondaryChatValue) {
+                    Write-Host "ID чата второго бота обязателен. Дополнительный бот отключён." -ForegroundColor Yellow
+                    $secondaryTokenValue = ''
+                }
+            }
+            else {
+                $secondaryChatValue = ''
+            }
+        }
+        else {
+            $secondaryTokenValue = ''
+            $secondaryChatValue = ''
+        }
     }
-} else {
+    else {
+        $telegramOptions.NotifyOnlyOnErrors = $false
+        $telegramOptions.ChatId = ''
+        $telegramTokenValue = ''
+        $secondaryTokenValue = ''
+        $secondaryChatValue = ''
+    }
+}
+else {
     $telegramOptions.Enabled = $false
     $telegramOptions.ChatId = ''
     $telegramOptions.NotifyOnlyOnErrors = $false
+    $secondaryTokenValue = ''
+    $secondaryChatValue = ''
     $telegramTokenValue = ''
 }
 
 if ($telegramOptions.Enabled) {
-    $telegramModulePath = Join-Path $PSScriptRoot '..\modules\Notifications.Telegram.psm1'
-    $moduleLoaded = $false
-    if (Test-Path $telegramModulePath) {
-        try {
-            Import-Module -Force -DisableNameChecking $telegramModulePath -ErrorAction Stop
-            $moduleLoaded = $true
-        }
-        catch {
-            Write-Host ("Не удалось загрузить модуль Telegram: {0}" -f $_.Exception.Message) -ForegroundColor Yellow
-        }
-    }
-    else {
-        Write-Host "Файл modules\Notifications.Telegram.psm1 не найден. Уведомления будут отключены." -ForegroundColor Yellow
-    }
-
-    if (-not $moduleLoaded) {
-        $telegramOptions.Enabled = $false
-        $telegramOptions.ChatId = ''
-        $telegramOptions.NotifyOnlyOnErrors = $false
-        $telegramTokenValue = ''
-        Write-Host "Уведомления Telegram отключены." -ForegroundColor Yellow
-    }
-    elseif ($telegramOptions.ChatId -and $telegramTokenValue) {
-        $testChoice = Read-Choice "Отправить тестовое сообщение в Telegram для проверки?" @('Да','Нет')
-        if ($testChoice -eq 1) {
-            try {
-                Send-TelegramMessage -Token $telegramTokenValue -ChatId $telegramOptions.ChatId -Text "Тестовое сообщение от мастера настройки my_backup1c" -Silent | Out-Null
-                Write-Host "Тестовое сообщение отправлено." -ForegroundColor Green
-            }
-            catch {
-                Write-Host ("Не удалось отправить тестовое сообщение: {0}" -f $_.Exception.Message) -ForegroundColor Yellow
-                $decision = Read-Choice "Как поступить?" @('Отключить уведомления','Оставить включёнными')
-                if ($decision -eq 1) {
-                    $telegramOptions.Enabled = $false
-                    $telegramOptions.ChatId = ''
-                    $telegramOptions.NotifyOnlyOnErrors = $false
-                    $telegramTokenValue = ''
-                }
-            }
-        }
-    }
-}
-
-if ($telegramOptions.Enabled) {
     $allSecrets[$telegramTokenKey] = $telegramTokenValue
-} elseif ($allSecrets.ContainsKey($telegramTokenKey)) {
-    $allSecrets.Remove($telegramTokenKey)
+    if ($secondaryTokenValue) {
+        $allSecrets[$secondaryTokenKey] = $secondaryTokenValue
+    }
+    elseif ($allSecrets.ContainsKey($secondaryTokenKey)) {
+        $allSecrets.Remove($secondaryTokenKey)
+        $secondaryChatValue = ''
+    }
 }
+else {
+    if ($allSecrets.ContainsKey($telegramTokenKey)) { $allSecrets.Remove($telegramTokenKey) }
+    if ($allSecrets.ContainsKey($secondaryTokenKey)) { $allSecrets.Remove($secondaryTokenKey) }
+}
+
+$telegramOptions.SecondaryChatId = if ($telegramOptions.Enabled) { $secondaryChatValue } else { '' }
 
 # ---------- save ----------
 foreach ($cfg in $allConfigs) {
