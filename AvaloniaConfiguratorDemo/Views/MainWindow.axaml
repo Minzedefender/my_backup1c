@@ -1,0 +1,266 @@
+﻿<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:BackupConfiguratorDemo.ViewModels"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:controls="clr-namespace:Avalonia.Controls;assembly=Avalonia.Controls"
+        mc:Ignorable="d"
+        d:DesignWidth="1080"
+        d:DesignHeight="680"
+        x:Class="BackupConfiguratorDemo.Views.MainWindow" x:Name="RootWindow"
+        x:DataType="vm:MainWindowViewModel"
+        Icon="/Assets/avalonia-logo.ico"
+        Title="Backup Configurator Demo">
+
+    <Design.DataContext>
+        <vm:MainWindowViewModel />
+    </Design.DataContext>
+
+    <DockPanel>
+        <Border DockPanel.Dock="Bottom"
+                Background="#101010"
+                Padding="10">
+            <StackPanel Orientation="Vertical" Spacing="6">
+                <TextBlock Text="Статус"
+                           FontSize="14"
+                           FontWeight="SemiBold" />
+                <TextBlock Text="{Binding StatusMessage}"
+                           TextWrapping="Wrap" />
+                <ProgressBar IsVisible="{Binding IsSending}"
+                             IsIndeterminate="True"
+                             Height="3" />
+            </StackPanel>
+        </Border>
+
+        <TabControl>
+            <TabItem Header="Базы">
+                <Grid ColumnDefinitions="280,*"
+                      ColumnSpacing="12"
+                      Margin="16">
+                    <Border Background="#1E1E1E"
+                            BorderBrush="#2B2B2B"
+                            BorderThickness="1"
+                            CornerRadius="8"
+                            Padding="10">
+                        <ListBox ItemsSource="{Binding BaseConfigs}"
+                                 SelectedItem="{Binding SelectedBase}">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate>
+                                    <StackPanel Margin="0,4"
+                                                Spacing="2">
+                                        <TextBlock Text="{Binding Title}"
+                                                   FontWeight="SemiBold" />
+                                        <TextBlock Text="{Binding Tag}"
+                                                   FontSize="12"
+                                                   Foreground="Gray" />
+                                        <TextBlock Text="{Binding Description}"
+                                                   FontSize="11"
+                                                   Foreground="#888"
+                                                   TextWrapping="Wrap" />
+                                    </StackPanel>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                    </Border>
+
+                    <Border Grid.Column="1"
+                            Background="#1E1E1E"
+                            BorderBrush="#2B2B2B"
+                            BorderThickness="1"
+                            CornerRadius="8"
+                            Padding="16">
+                        <Grid DataContext="{Binding SelectedBase}">
+                            <ScrollViewer>
+                                <StackPanel Spacing="12">
+                                    <TextBlock Text="Карточка базы"
+                                               FontSize="18"
+                                               FontWeight="SemiBold" />
+                                    <TextBlock Text="В демо-версии значения можно изменять, но сохранение отключено."
+                                               Foreground="Gray"
+                                               TextWrapping="Wrap" />
+
+                                    <StackPanel Spacing="4">
+                                        <TextBlock Text="Технический идентификатор (Tag)" />
+                                        <TextBox Text="{Binding Tag, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                                    </StackPanel>
+
+                                    <StackPanel Spacing="4">
+                                        <TextBlock Text="Заголовок" />
+                                        <TextBox Text="{Binding Title, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                                    </StackPanel>
+
+                                    <StackPanel Spacing="4">
+                                        <TextBlock Text="Описание" />
+                                        <TextBox Text="{Binding Description, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                 AcceptsReturn="True"
+                                                 Height="60" />
+                                    </StackPanel>
+
+                                    <StackPanel Orientation="Horizontal"
+                                                Spacing="16">
+                                        <StackPanel Width="220" Spacing="4">
+                                            <TextBlock Text="Тип бэкапа" />
+                                            <ComboBox ItemsSource="{Binding DataContext.BackupTypeOptions, ElementName=RootWindow}"
+                                                      SelectedItem="{Binding BackupTypeOption, Mode=TwoWay}" />
+                                        </StackPanel>
+                                        <ToggleSwitch Content="Отключить базу"
+                                                      IsChecked="{Binding Disabled, Mode=TwoWay}" />
+                                    </StackPanel>
+
+                                    <StackPanel Spacing="4">
+                                        <TextBlock Text="Путь к базе" />
+                                        <TextBox Text="{Binding SourcePath, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                                    </StackPanel>
+
+                                    <StackPanel Spacing="4">
+                                        <TextBlock Text="Папка для сохранения бэкапов" />
+                                        <TextBox Text="{Binding DestinationPath, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                                    </StackPanel>
+
+                                    <StackPanel Spacing="4"
+                                                IsVisible="{Binding RequiresDesigner}">
+                                        <TextBlock Text="Путь к 1cv8.exe" />
+                                        <TextBox Text="{Binding ExePath, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                                    </StackPanel>
+
+                                    <StackPanel Orientation="Horizontal" Spacing="16">
+                                        <StackPanel Width="220" Spacing="4">
+                                            <TextBlock Text="Хранить локальных копий" />
+                                            <controls:NumericUpDown Minimum="0" Maximum="60"
+                                                                   Value="{Binding KeepCopies, Mode=TwoWay}" />
+                                        </StackPanel>
+                                        <StackPanel Width="220" Spacing="4">
+                                            <TextBlock Text="Облако" />
+                                            <ComboBox ItemsSource="{Binding DataContext.CloudOptions, ElementName=RootWindow}"
+                                                      SelectedItem="{Binding CloudTypeOption, Mode=TwoWay}" />
+                                        </StackPanel>
+                                        <StackPanel Width="220" Spacing="4"
+                                                    IsVisible="{Binding UsesCloud}">
+                                            <TextBlock Text="Сколько копий хранить в облаке" />
+                                            <controls:NumericUpDown Minimum="0" Maximum="30"
+                                                                   Value="{Binding CloudKeep, Mode=TwoWay}" />
+                                        </StackPanel>
+                                    </StackPanel>
+
+                                    <StackPanel Spacing="4">
+                                        <TextBlock Text="Службы для остановки перед бэкапом (по одной на строку)" />
+                                        <TextBox Text="{Binding StopServicesText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                 AcceptsReturn="True"
+                                                 Height="80" />
+                                    </StackPanel>
+
+                                    <Expander Header="Подсказки по секретам и токенам" IsExpanded="False">
+                                        <StackPanel Spacing="4">
+                                            <TextBlock Text="Ключи для шифрованного хранилища:" />
+                                            <TextBlock Text="Токен Я.Диска" FontWeight="SemiBold" />
+                                            <TextBox Text="{Binding CloudTokenKey}" IsReadOnly="True" FontFamily="Consolas" />
+                                            <TextBlock Text="Логин DESIGNER" FontWeight="SemiBold" />
+                                            <TextBox Text="{Binding DesignerLoginKey}" IsReadOnly="True" FontFamily="Consolas" />
+                                            <TextBlock Text="Пароль DESIGNER" FontWeight="SemiBold" />
+                                            <TextBox Text="{Binding DesignerPasswordKey}" IsReadOnly="True" FontFamily="Consolas" />
+                                        </StackPanel>
+                                    </Expander>
+
+                                    <StackPanel Orientation="Horizontal"
+                                                HorizontalAlignment="Left"
+                                                Spacing="8"
+                                                Margin="0,8,0,0">
+                                        <Button Content="Добавить"
+                                                Command="{Binding DataContext.CreateConfigCommand, ElementName=RootWindow}" />
+                                        <Button Content="Дублировать"
+                                                Command="{Binding DataContext.DuplicateConfigCommand, ElementName=RootWindow}" />
+                                        <Button Content="Удалить"
+                                                Command="{Binding DataContext.DeleteConfigCommand, ElementName=RootWindow}" />
+                                        <Button Content="Сохранить"
+                                                Command="{Binding DataContext.SaveConfigCommand, ElementName=RootWindow}" />
+                                    </StackPanel>
+                                </StackPanel>
+                            </ScrollViewer>
+                        </Grid>
+                    </Border>
+                </Grid>
+            </TabItem>
+
+            <TabItem Header="Глобальные настройки">
+                <ScrollViewer Margin="16">
+                    <StackPanel Spacing="16">
+                        <TextBlock Text="Общие параметры" FontSize="18" FontWeight="SemiBold" />
+                        <TextBlock Text="Настройки отображаются как в полной версии, но не сохраняются в демо." Foreground="Gray" />
+
+                        <StackPanel Width="320" Spacing="4">
+                            <TextBlock Text="Действие после завершения бэкапа" />
+                            <ComboBox ItemsSource="{Binding AfterBackupOptions}"
+                                      SelectedItem="{Binding SelectedAfterBackupOption, Mode=TwoWay}" />
+                        </StackPanel>
+
+                        <StackPanel Spacing="8">
+                            <TextBlock Text="Telegram уведомления" FontWeight="SemiBold" />
+                            <ToggleSwitch Content="Включить уведомления"
+                                          IsChecked="{Binding TelegramEnabled, Mode=TwoWay}" />
+                            <ToggleSwitch Content="Отправлять только при ошибках"
+                                          IsChecked="{Binding TelegramNotifyOnlyOnErrors, Mode=TwoWay}" />
+                            <TextBlock Text="В релизе эти параметры переносятся в settings.json." Foreground="Gray" />
+                        </StackPanel>
+
+                        <Button Content="Сохранить настройки"
+                                Command="{Binding SaveGlobalSettingsCommand}"
+                                Width="220" />
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+
+            <TabItem Header="Секреты и Telegram">
+                <ScrollViewer Margin="16">
+                    <StackPanel Spacing="16">
+                        <TextBlock Text="Работа с секретами" FontSize="18" FontWeight="SemiBold" />
+                        <TextBlock Text="Редактирование ключей и токенов показано для ориентира. В демо режиме данные не записываются." Foreground="Gray" />
+
+                        <StackPanel Spacing="4">
+                            <TextBlock Text="Primary Bot Token" />
+                            <TextBox Text="{Binding TelegramBotToken, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                     Watermark="123456789:AA..." />
+                        </StackPanel>
+
+                        <StackPanel Spacing="4">
+                            <TextBlock Text="Primary Chat ID" />
+                            <TextBox Text="{Binding TelegramChatId, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                     Watermark="-1001234567890" />
+                        </StackPanel>
+
+                        <StackPanel Spacing="4">
+                            <TextBlock Text="Secondary Bot Token" />
+                            <TextBox Text="{Binding TelegramSecondaryToken, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                     Watermark="Опционально" />
+                        </StackPanel>
+
+                        <StackPanel Spacing="4">
+                            <TextBlock Text="Secondary Chat ID" />
+                            <TextBox Text="{Binding TelegramSecondaryChatId, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                     Watermark="Опционально" />
+                        </StackPanel>
+
+                        <Button Content="Сохранить секреты"
+                                Command="{Binding SaveSecretsCommand}"
+                                Width="220" />
+
+                        <Border Background="#232323"
+                                Padding="14"
+                                CornerRadius="8">
+                            <StackPanel Spacing="10">
+                                <TextBlock Text="Тестовое сообщение в Telegram"
+                                           FontSize="16"
+                                           FontWeight="SemiBold" />
+                                <TextBlock Text="Единственный рабочий сценарий демо — отправка теста. Заполните токен и чат, затем нажмите кнопку." TextWrapping="Wrap" Foreground="Gray" />
+                                <TextBox Text="{Binding TelegramMessage, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                         AcceptsReturn="True"
+                                         Height="100" />
+                                <Button Content="Отправить тест"
+                                        Command="{Binding SendTelegramTestCommand}" />
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+        </TabControl>
+    </DockPanel>
+</Window>
